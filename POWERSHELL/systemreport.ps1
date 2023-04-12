@@ -1,82 +1,55 @@
-[CmdletBinding()]
-param(
-    [switch]$System,
-    [switch]$Disks,
-    [switch]$Network
-)
+function display_cpu_os_ram_video {
+    Write-Host "=== CPU ==="
+    Get-CimInstance -ClassName Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors
+    Write-Host ""
 
-# Define functions to gather system information
+    Write-Host "=== OS ==="
+    Get-CimInstance -ClassName Win32_OperatingSystem | Select-Object Caption,Version,OSArchitecture
+    Write-Host ""
 
-function Get-SystemHardware {
-    Get-CimInstance Win32_ComputerSystem | Select-Object Manufacturer, Model, TotalPhysicalMemory
+    Write-Host "=== RAM ==="
+    Get-CimInstance -ClassName Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum | Select-Object @{Name='TotalMemory';Expression={$_.Sum / 1GB}}
+    Write-Host ""
+
+    Write-Host "=== Video ==="
+    Get-CimInstance -ClassName Win32_VideoController | Select-Object Name,AdapterCompatibility
+    Write-Host ""
 }
 
-function Get-OperatingSystem {
-    Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version
+function display_disks {
+    Write-Host "=== Disks ==="
+    Get-CimInstance -ClassName Win32_LogicalDisk | Select-Object DeviceID,VolumeName,Size,FreeSpace
+    Write-Host ""
 }
 
-function Get-Processor {
-    Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, MaxClockSpeed, 
-    @{Name='L1 Cache Size'; Expression={$_.L1CacheSize}}, 
-    @{Name='L2 Cache Size'; Expression={$_.L2CacheSize}}, 
-    @{Name='L3 Cache Size'; Expression={$_.L3CacheSize}}
+function display_network {
+    Write-Host "=== Network ==="
+    Get-NetAdapter | Select-Object Name,InterfaceDescription,MacAddress,Status,LinkSpeed
+    Write-Host ""
 }
 
-function Get-Memory {
-    $memory = Get-CimInstance Win32_PhysicalMemory | Select-Object BankLabel, DeviceLocator, Manufacturer, PartNumber, SerialNumber, @{Name='Size (GB)'; Expression={$_.Capacity / 1GB -as [int]}}
-    $totalMemory = ($memory | Measure-Object -Property 'Size (GB)' -Sum).Sum
-    $memory | Format-Table BankLabel, DeviceLocator, Manufacturer, PartNumber, SerialNumber, 'Size (GB)'
-    Write-Host "Total Memory: $totalMemory GB"
-}
-
-function Get-Disks {
-    $diskdrives = Get-CimInstance Win32_DiskDrive
-    $diskInfo = foreach ($disk in $diskdrives) {
-        $partitions = $disk | Get-CimAssociatedInstance -ResultClassName Win32_DiskPartition
-        foreach ($partition in $partitions) {
-            $logicaldisks = $partition | Get-CimAssociatedInstance -ResultClassName Win32_LogicalDisk
-            foreach ($logicaldisk in $logicaldisks) {
-                [PSCustomObject]@{
-                    'Manufacturer' = $disk.Manufacturer
-                    'Model' = $disk.Model
-                    'Size (GB)' = [math]::Round($disk.Size / 1GB, 2)
-                    'Location' = $partition.DeviceID
-                    'Drive Letter' = $logicaldisk.DeviceID
-                    'Free Space (GB)' = [math]::Round($logicaldisk.FreeSpace / 1GB, 2)
-                    '% Free' = [math]::Round(($logicaldisk.FreeSpace / $logicaldisk.Size) * 100, 2)
-                }
+if ($args.Count -eq 0) {
+    display_cpu_os_ram_video
+    display_disks
+    display_network
+} else {
+    foreach ($arg in $args) {
+        switch ($arg) {
+            "-System" {
+                display_cpu_os_ram_video
+            }
+            "-Disks" {
+                display_disks
+            }
+            "-Network" {
+                display_network
+            }
+            default {
+                Write-Host "Invalid option: $arg"
+                Write-Host "Usage: systemreport.ps1 [-System] [-Disks] [-Network]"
+                exit 1
             }
         }
     }
-    $diskInfo | Format-Table Manufacturer, Model, 'Size (GB)', Location, 'Drive Letter', 'Free Space (GB)', '% Free'
 }
 
-function Get-Network {
-    Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, MacAddress, LinkSpeed
-}
-
-function Get-VideoController {
-    Get-CimInstance Win32_VideoController | Select-Object AdapterCompatibility, Description, 
-    @{Name='Resolution'; Expression={$_.VideoModeDescription -replace '^.*(\d{3,4}x\d{3,4}).*$', '$1'}}
-}
-
-# Output system information
-if ($System) {
-    Write-Host "System Hardware"
-    Get-SystemHardware
-
-    Write-Host "`nOperating System"
-    Get-OperatingSystem
-
-    Write-Host "`nProcessor"
-    Get-Processor
-
-    Write-Host "`nVideo Controller"
-    Get-VideoController
-
-    Write-Host "`nMemory"
-    Get-Memory
-}
-elseif ($Disks) {
-    Get-Disks
-}

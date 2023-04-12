@@ -1,3 +1,10 @@
+[CmdletBinding()]
+param(
+    [switch]$System,
+    [switch]$Disks,
+    [switch]$Network
+)
+
 # Define functions to gather system information
 
 function Get-SystemHardware {
@@ -54,15 +61,22 @@ function Get-VideoController {
 }
 
 # Output system information
+if ($System) {
+    Write-Host "System Hardware"
+    Get-SystemHardware
 
-Write-Host "System Hardware"
-Get-SystemHardware
+    Write-Host "`nOperating System"
+    Get-OperatingSystem
 
-Write-Host "`nOperating System"
-Get-OperatingSystem
+    Write-Host "`nProcessor"
+    Get-Processor
 
-Write-Host "`nProcessor"
-Get-Processor
+    Write-Host "`nVideo Controller"
+    Get-VideoController
 
-Write-
-
+    Write-Host "`nMemory"
+    Get-Memory
+}
+elseif ($Disks) {
+    Get-Disks
+}

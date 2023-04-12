@@ -16,71 +16,110 @@ $report | Format-Table -AutoSize
 }
 
 function lab4 {
-	# Define functions to gather system information
-
-function Get-SystemHardware {
-    Get-CimInstance Win32_ComputerSystem | Select-Object Manufacturer, Model, TotalPhysicalMemory
+	# Define functions to get system information
+function Get-ComputerSystem {
+    Get-CimInstance -Class Win32_ComputerSystem
 }
 
 function Get-OperatingSystem {
-    Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version
+    Get-CimInstance -Class Win32_OperatingSystem
 }
 
 function Get-Processor {
-    Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, MaxClockSpeed, 
-    @{Name='L1 Cache Size'; Expression={$_.L1CacheSize}}, 
-    @{Name='L2 Cache Size'; Expression={$_.L2CacheSize}}, 
-    @{Name='L3 Cache Size'; Expression={$_.L3CacheSize}}
+    Get-CimInstance -Class Win32_Processor
 }
 
-function Get-Memory {
-    $memory = Get-CimInstance Win32_PhysicalMemory | Select-Object BankLabel, DeviceLocator, Manufacturer, PartNumber, SerialNumber, @{Name='Size (GB)'; Expression={$_.Capacity / 1GB -as [int]}}
-    $totalMemory = ($memory | Measure-Object -Property 'Size (GB)' -Sum).Sum
-    $memory | Format-Table BankLabel, DeviceLocator, Manufacturer, PartNumber, SerialNumber, 'Size (GB)'
-    Write-Host "Total Memory: $totalMemory GB"
+function Get-PhysicalMemory {
+    Get-CimInstance -Class Win32_PhysicalMemory
 }
 
-function Get-Disks {
-    $diskdrives = Get-CimInstance Win32_DiskDrive
-    $diskInfo = foreach ($disk in $diskdrives) {
-        $partitions = $disk | Get-CimAssociatedInstance -ResultClassName Win32_DiskPartition
-        foreach ($partition in $partitions) {
-            $logicaldisks = $partition | Get-CimAssociatedInstance -ResultClassName Win32_LogicalDisk
-            foreach ($logicaldisk in $logicaldisks) {
-                [PSCustomObject]@{
-                    'Manufacturer' = $disk.Manufacturer
-                    'Model' = $disk.Model
-                    'Size (GB)' = [math]::Round($disk.Size / 1GB, 2)
-                    'Location' = $partition.DeviceID
-                    'Drive Letter' = $logicaldisk.DeviceID
-                    'Free Space (GB)' = [math]::Round($logicaldisk.FreeSpace / 1GB, 2)
-                    '% Free' = [math]::Round(($logicaldisk.FreeSpace / $logicaldisk.Size) * 100, 2)
-                }
-            }
-        }
-    }
-    $diskInfo | Format-Table Manufacturer, Model, 'Size (GB)', Location, 'Drive Letter', 'Free Space (GB)', '% Free'
+function Get-DiskDrive {
+    Get-CimInstance -Class Win32_DiskDrive
 }
 
-function Get-Network {
-    Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, MacAddress, LinkSpeed
+function Get-DiskPartition {
+    Get-CimInstance -Class Win32_DiskPartition
+}
+
+function Get-LogicalDisk {
+    Get-CimInstance -Class Win32_LogicalDisk
+}
+
+function Get-NetworkAdapterConfiguration {
+    Get-CimInstance -Class Win32_NetworkAdapterConfiguration | Where-Object {$_.IPEnabled -eq 'True'}
 }
 
 function Get-VideoController {
-    Get-CimInstance Win32_VideoController | Select-Object AdapterCompatibility, Description, 
-    @{Name='Resolution'; Expression={$_.VideoModeDescription -replace '^.*(\d{3,4}x\d{3,4}).*$', '$1'}}
+    Get-CimInstance -Class Win32_VideoController
 }
 
-# Output system information
+# Define function to format memory information as a table
+function Format-Memory {
+    $memories = Get-PhysicalMemory
+    $table = @()
+    $total = 0
+    foreach ($memory in $memories) {
+        $size = [math]::Round($memory.Capacity / 1GB, 2)
+        $row = [pscustomobject]@{
+            Vendor = $memory.Manufacturer
+            Description = $memory.Caption
+            Size = $size
+            Bank = $memory.BankLabel
+            Slot = $memory.DeviceLocator
+        }
+        $total += $size
+        $table += $row
+    }
+    Write-Host "Installed RAM: $($total) GB`n"
+    $table | Format-Table -AutoSize
+}
 
-Write-Host "System Hardware"
-Get-SystemHardware
+# Define function to format disk information as a table
+function Format-Disk {
+    $drives = Get-DiskDrive
+    $table = @()
+    foreach ($drive in $drives) {
+        $partitions = Get-DiskPartition -DiskDrive $drive
+        foreach ($partition in $partitions) {
+            $logicaldisks = Get-LogicalDisk -Partition $partition
+            foreach ($logicaldisk in $logicaldisks) {
+                $size = [math]::Round($logicaldisk.Size / 1GB, 2)
+                $free = [math]::Round($logicaldisk.FreeSpace / 1GB, 2)
+                $percentage = [math]::Round(($free / $size) * 100, 2)
+                $row = [pscustomobject]@{
+                    Vendor = $drive.Manufacturer
+                    Model = $drive.Model
+                    Size = $size
+                    FreeSpace = $free
+                    '% Free' = $percentage
+                    Drive = $logicaldisk.DeviceID
+                }
+                $table += $row
+            }
+        }
+    }
+    $table | Format-Table -AutoSize
+}
 
-Write-Host "`nOperating System"
+# Display system information
+Write-Host "System Hardware Description"
+Get-ComputerSystem
+
+Write-Host "`nOperating System Information"
 Get-OperatingSystem
 
-Write-Host "`nProcessor"
+Write-Host "`nProcessor Information"
 Get-Processor
 
-Write-
-}
+Write-Host "`nMemory Information"
+Format-Memory
+
+Write-Host "`nDisk Information"
+Format-Disk
+
+Write-Host "`nNetwork Adapter Configuration"
+Get-NetworkAdapterConfiguration
+
+Write-Host "`nVideo Controller Information"
+Get-VideoController
+

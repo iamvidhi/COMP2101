@@ -1,55 +1,117 @@
-function display_cpu_os_ram_video {
-    Write-Host "=== CPU ==="
-    Get-CimInstance -ClassName Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors
-    Write-Host ""
+[CmdletBinding()]
+param(
+    [switch]$System,
+    [switch]$Disks,
+    [switch]$Network
+)
 
-    Write-Host "=== OS ==="
-    Get-CimInstance -ClassName Win32_OperatingSystem | Select-Object Caption,Version,OSArchitecture
-    Write-Host ""
-
-    Write-Host "=== RAM ==="
-    Get-CimInstance -ClassName Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum | Select-Object @{Name='TotalMemory';Expression={$_.Sum / 1GB}}
-    Write-Host ""
-
-    Write-Host "=== Video ==="
-    Get-CimInstance -ClassName Win32_VideoController | Select-Object Name,AdapterCompatibility
-    Write-Host ""
+# Define functions to get system information
+function Get-ComputerSystem {
+    Get-CimInstance -Class Win32_ComputerSystem
 }
 
-function display_disks {
-    Write-Host "=== Disks ==="
-    Get-CimInstance -ClassName Win32_LogicalDisk | Select-Object DeviceID,VolumeName,Size,FreeSpace
-    Write-Host ""
+function Get-OperatingSystem {
+    Get-CimInstance -Class Win32_OperatingSystem
 }
 
-function display_network {
-    Write-Host "=== Network ==="
-    Get-NetAdapter | Select-Object Name,InterfaceDescription,MacAddress,Status,LinkSpeed
-    Write-Host ""
+function Get-Processor {
+    Get-CimInstance -Class Win32_Processor
 }
 
-if ($args.Count -eq 0) {
-    display_cpu_os_ram_video
-    display_disks
-    display_network
-} else {
-    foreach ($arg in $args) {
-        switch ($arg) {
-            "-System" {
-                display_cpu_os_ram_video
-            }
-            "-Disks" {
-                display_disks
-            }
-            "-Network" {
-                display_network
-            }
-            default {
-                Write-Host "Invalid option: $arg"
-                Write-Host "Usage: systemreport.ps1 [-System] [-Disks] [-Network]"
-                exit 1
+function Get-PhysicalMemory {
+    Get-CimInstance -Class Win32_PhysicalMemory
+}
+
+function Get-DiskDrive {
+    Get-CimInstance -Class Win32_DiskDrive
+}
+
+function Get-DiskPartition {
+    Get-CimInstance -Class Win32_DiskPartition
+}
+
+function Get-LogicalDisk {
+    Get-CimInstance -Class Win32_LogicalDisk
+}
+
+function Get-NetworkAdapterConfiguration {
+    Get-CimInstance -Class Win32_NetworkAdapterConfiguration | Where-Object {$_.IPEnabled -eq 'True'}
+}
+
+function Get-VideoController {
+    Get-CimInstance -Class Win32_VideoController
+}
+
+# Define function to format memory information as a table
+function Format-Memory {
+    $memories = Get-PhysicalMemory
+    $table = @()
+    $total = 0
+    foreach ($memory in $memories) {
+        $size = [math]::Round($memory.Capacity / 1GB, 2)
+        $row = [pscustomobject]@{
+            Vendor = $memory.Manufacturer
+            Description = $memory.Caption
+            Size = $size
+            Bank = $memory.BankLabel
+            Slot = $memory.DeviceLocator
+        }
+        $total += $size
+        $table += $row
+    }
+    Write-Host "Installed RAM: $($total) GB`n"
+    $table | Format-Table -AutoSize
+}
+
+# Define function to format disk information as a table
+function Format-Disk {
+    $drives = Get-DiskDrive
+    $table = @()
+    foreach ($drive in $drives) {
+        $partitions = Get-DiskPartition -DiskDrive $drive
+        foreach ($partition in $partitions) {
+            $logicaldisks = Get-LogicalDisk -Partition $partition
+            foreach ($logicaldisk in $logicaldisks) {
+                $size = [math]::Round($logicaldisk.Size / 1GB, 2)
+                $free = [math]::Round($logicaldisk.FreeSpace / 1GB, 2)
+                $percentage = [math]::Round(($free / $size) * 100, 2)
+                $row = [pscustomobject]@{
+                    Vendor = $drive.Manufacturer
+                    Model = $drive.Model
+                    Size = $size
+                    FreeSpace = $free
+                    '% Free' = $percentage
+                    Drive = $logicaldisk.DeviceID
+                }
+                $table += $row
             }
         }
     }
+    $table | Format-Table -AutoSize
 }
 
+# Display system information based on parameters
+if ($System) {
+    Write-Host "System Hardware Description"
+    Get-ComputerSystem
+
+    Write-Host "`nOperating System Information"
+    Get-OperatingSystem
+
+    Write-Host "`nProcessor Information"
+    Get-Processor
+
+    Write-Host "`nMemory Information"
+    Format-Memory
+
+    Write-Host "`nVideo Controller Information"
+    Get-VideoController
+}
+
+# Display disk information based on parameters
+if ($Disks) {
+    Write-Host "`nDisk Information"
+    Format-Disk
+}
+
+#
